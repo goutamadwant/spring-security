@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -69,6 +70,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
+import org.springframework.security.core.session.ReactiveSessionInformation;
 import org.springframework.security.core.session.ReactiveSessionRegistry;
 import org.springframework.security.core.userdetails.ReactiveUserDetailsService;
 import org.springframework.security.oauth2.client.InMemoryReactiveOAuth2AuthorizedClientService;
@@ -138,6 +140,7 @@ import org.springframework.security.web.server.authentication.DelegatingServerAu
 import org.springframework.security.web.server.authentication.HttpBasicServerAuthenticationEntryPoint;
 import org.springframework.security.web.server.authentication.HttpStatusServerEntryPoint;
 import org.springframework.security.web.server.authentication.InvalidateLeastUsedServerMaximumSessionsExceededHandler;
+import org.springframework.security.web.server.authentication.LogoutServerMaximumSessionsExceededHandler;
 import org.springframework.security.web.server.authentication.ReactivePreAuthenticatedAuthenticationManager;
 import org.springframework.security.web.server.authentication.RedirectServerAuthenticationEntryPoint;
 import org.springframework.security.web.server.authentication.RedirectServerAuthenticationFailureHandler;
@@ -1513,6 +1516,8 @@ public class ServerHttpSecurity {
 
 		private ServerMaximumSessionsExceededHandler maximumSessionsExceededHandler;
 
+		private List<String> sessionInformationCookieNames;
+
 		/**
 		 * Configures how many sessions are allowed for a given user.
 		 * @param customizer the customizer to provide more options
@@ -1529,11 +1534,17 @@ public class ServerHttpSecurity {
 		void configure(ServerHttpSecurity http) {
 			if (this.concurrentSessions != null) {
 				ReactiveSessionRegistry reactiveSessionRegistry = getSessionRegistry();
+				ServerMaximumSessionsExceededHandler maximumSessionsExceededHandler = getMaximumSessionsExceededHandler();
 				ConcurrentSessionControlServerAuthenticationSuccessHandler concurrentSessionControlStrategy = new ConcurrentSessionControlServerAuthenticationSuccessHandler(
-						reactiveSessionRegistry, getMaximumSessionsExceededHandler());
+						reactiveSessionRegistry, maximumSessionsExceededHandler);
 				concurrentSessionControlStrategy.setSessionLimit(this.sessionLimit);
-				RegisterSessionServerAuthenticationSuccessHandler registerSessionAuthenticationStrategy = new RegisterSessionServerAuthenticationSuccessHandler(
-						reactiveSessionRegistry);
+				boolean captureCredentials = maximumSessionsExceededHandler instanceof LogoutServerMaximumSessionsExceededHandler
+						|| this.sessionInformationCookieNames != null;
+				List<String> cookieNames = (this.sessionInformationCookieNames != null)
+						? this.sessionInformationCookieNames : List.of("XSRF-TOKEN");
+				RegisterSessionServerAuthenticationSuccessHandler registerSessionAuthenticationStrategy = captureCredentials
+						? new RegisterSessionServerAuthenticationSuccessHandler(reactiveSessionRegistry, cookieNames)
+						: new RegisterSessionServerAuthenticationSuccessHandler(reactiveSessionRegistry);
 				this.authenticationSuccessHandler = new DelegatingServerAuthenticationSuccessHandler(
 						concurrentSessionControlStrategy, registerSessionAuthenticationStrategy);
 				SessionRegistryWebFilter sessionRegistryWebFilter = new SessionRegistryWebFilter(
@@ -1637,6 +1648,25 @@ public class ServerHttpSecurity {
 					ServerMaximumSessionsExceededHandler maximumSessionsExceededHandler) {
 				Assert.notNull(maximumSessionsExceededHandler, "maximumSessionsExceededHandler cannot be null");
 				SessionManagementSpec.this.maximumSessionsExceededHandler = maximumSessionsExceededHandler;
+				return this;
+			}
+
+			/**
+			 * Sets the names of cookies to store in each
+			 * {@link ReactiveSessionInformation} for use by the configured
+			 * {@link ServerMaximumSessionsExceededHandler}. When
+			 * {@link LogoutServerMaximumSessionsExceededHandler} is configured, only
+			 * {@code XSRF-TOKEN} is stored by default.
+			 * @param cookieNames the cookie names to store
+			 * @return the {@link ConcurrentSessionsSpec} to continue customizing
+			 * @since 7.2
+			 */
+			public ConcurrentSessionsSpec sessionInformationCookieNames(Collection<String> cookieNames) {
+				Assert.notNull(cookieNames, "cookieNames cannot be null");
+				for (String cookieName : cookieNames) {
+					Assert.hasText(cookieName, "cookieNames cannot contain empty values");
+				}
+				SessionManagementSpec.this.sessionInformationCookieNames = List.copyOf(cookieNames);
 				return this;
 			}
 

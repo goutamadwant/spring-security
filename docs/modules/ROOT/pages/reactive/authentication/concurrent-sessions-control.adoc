@@ -199,6 +199,9 @@ If you also need to invalidate the session against the Identity Provider you mus
 
 By default, when the maximum number of sessions is exceeded, the least recently used session(s) will be expired by using the javadoc:org.springframework.security.web.server.authentication.InvalidateLeastUsedServerMaximumSessionsExceededHandler[].
 Spring Security also provides another implementation that prevents the user from creating new sessions by using the javadoc:org.springframework.security.web.server.authentication.PreventLoginServerMaximumSessionsExceededHandler[].
+To invoke the configured logout handlers for the least recently used session(s), use javadoc:org.springframework.security.web.server.authentication.LogoutServerMaximumSessionsExceededHandler[] with an absolute URI for a trusted application logout endpoint.
+This implementation performs an internal `POST` with the session cookie, CSRF token, and cookies that were captured when the session was registered.
+When the logout handler is selected, the `XSRF-TOKEN` cookie is captured by default; use `sessionInformationCookieNames` in the concurrent sessions DSL to replace the list when different cookies are required by your logout handlers.
 If you want to use your own strategy, you can provide a different implementation of javadoc:org.springframework.security.web.server.authentication.ServerMaximumSessionsExceededHandler[].
 
 .Configuring maximumSessionsExceededHandler

@@ -16,6 +16,8 @@
 
 package org.springframework.security.config.web.server;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import reactor.core.publisher.Mono;
@@ -35,7 +37,9 @@ import org.springframework.security.config.test.SpringTestContext;
 import org.springframework.security.config.test.SpringTestContextExtension;
 import org.springframework.security.config.users.ReactiveAuthenticationTestConfiguration;
 import org.springframework.security.core.session.InMemoryReactiveSessionRegistry;
+import org.springframework.security.core.session.ReactiveSessionInformation;
 import org.springframework.security.core.session.ReactiveSessionRegistry;
+import org.springframework.security.core.userdetails.ReactiveUserDetailsService;
 import org.springframework.security.oauth2.client.authentication.OAuth2LoginAuthenticationToken;
 import org.springframework.security.oauth2.client.registration.InMemoryReactiveClientRegistrationRepository;
 import org.springframework.security.oauth2.client.registration.TestClientRegistrations;
@@ -65,6 +69,7 @@ import org.springframework.web.server.adapter.WebHttpHandlerBuilder;
 import org.springframework.web.server.session.DefaultWebSessionManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
@@ -77,9 +82,37 @@ public class SessionManagementSpecTests {
 
 	WebTestClient client;
 
+	ApplicationContext context;
+
 	@Autowired
 	public void setApplicationContext(ApplicationContext context) {
+		this.context = context;
 		this.client = WebTestClient.bindToApplicationContext(context).build();
+	}
+
+	@Test
+	void loginWhenSessionInformationCookieNamesConfiguredThenStoresConfiguredCookie() {
+		this.spring.register(ConcurrentSessionsCustomCookieConfig.class).autowire();
+
+		MultiValueMap<String, String> data = new LinkedMultiValueMap<>();
+		data.add("username", "user");
+		data.add("password", "password");
+		this.client.mutateWith(csrf())
+			.post()
+			.uri("/login")
+			.cookie("LOGOUT_STATE", "cookie-value")
+			.contentType(MediaType.MULTIPART_FORM_DATA)
+			.body(BodyInserters.fromFormData(data))
+			.exchange()
+			.expectStatus()
+			.is3xxRedirection();
+		Object principal = this.context.getBean(ReactiveUserDetailsService.class).findByUsername("user").block();
+		ReactiveSessionInformation session = this.context.getBean(ReactiveSessionRegistry.class)
+			.getAllSessions(principal)
+			.blockFirst();
+
+		assertThat(session).isNotNull();
+		assertThat(session.getCookies()).containsOnly(entry("LOGOUT_STATE", "cookie-value"));
 	}
 
 	@Test
@@ -424,6 +457,29 @@ public class SessionManagementSpecTests {
 					.concurrentSessions((concurrentSessions) -> concurrentSessions
 						.maximumSessions(sessionLimit)
 						.maximumSessionsExceededHandler(new PreventLoginServerMaximumSessionsExceededHandler())
+					)
+				);
+			// @formatter:on
+			return http.build();
+		}
+
+	}
+
+	@Configuration
+	@EnableWebFlux
+	@EnableWebFluxSecurity
+	@Import(Config.class)
+	static class ConcurrentSessionsCustomCookieConfig {
+
+		@Bean
+		SecurityWebFilterChain springSecurity(ServerHttpSecurity http) {
+			// @formatter:off
+			http
+				.authorizeExchange((authorize) -> authorize.anyExchange().authenticated())
+				.formLogin(Customizer.withDefaults())
+				.sessionManagement((sessionManagement) -> sessionManagement
+					.concurrentSessions((concurrentSessions) -> concurrentSessions
+						.sessionInformationCookieNames(List.of("LOGOUT_STATE"))
 					)
 				);
 			// @formatter:on

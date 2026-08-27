@@ -32,6 +32,13 @@ class ServerSessionConcurrencyDsl {
     var maximumSessionsExceededHandler: ServerMaximumSessionsExceededHandler? = null
     var sessionRegistry: ReactiveSessionRegistry? = null
 
+    /**
+     * The names of cookies to store in each session's information for use by the
+     * configured [ServerMaximumSessionsExceededHandler].
+     * @since 7.2
+     */
+    var sessionInformationCookieNames: Collection<String>? = null
+
     internal fun get(): (ServerHttpSecurity.SessionManagementSpec.ConcurrentSessionsSpec) -> Unit {
         return { sessionConcurrency ->
             maximumSessions?.also {
@@ -42,6 +49,9 @@ class ServerSessionConcurrencyDsl {
             }
             sessionRegistry?.also {
                 sessionConcurrency.sessionRegistry(sessionRegistry!!)
+            }
+            sessionInformationCookieNames?.also {
+                sessionConcurrency.sessionInformationCookieNames(sessionInformationCookieNames!!)
             }
         }
     }
